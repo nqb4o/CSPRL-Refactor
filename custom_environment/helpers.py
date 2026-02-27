@@ -474,14 +474,26 @@ def coverage(my_node_list, my_plan):
         my_node[1]["covered"] = cover
 
 
-def choose_node_new_benefit(free_list):
+def choose_node_new_benefit(free_list, all_node_list, R_search=10):
     """
-    pick location which the smallest coverage
+    pick location with highest potential based on Potential/Coverage.
     """
-    upbound_list = [my_node[1]["covered"] for my_node in free_list]
-    pos_minindex = upbound_list.index(min(upbound_list))
-    chosen_node = free_list[pos_minindex]
-    return chosen_node
+    potential_scores = []
+    epsilon = 0.001
+    for candidate_node in free_list:
+        local_demand = 0
+        for node in all_node_list:
+            dist = haversine(candidate_node, node)
+            if dist <= R_search:
+                local_demand += weak_demand(node)
+        
+        current_coverage = candidate_node[1].get("covered", 0)
+        score = local_demand / (current_coverage + epsilon)
+        
+        potential_scores.append(score)
+    best_index = np.argmax(potential_scores)
+    
+    return free_list[best_index]
 
 
 def choose_node_bydemand(free_list, my_plan, add=False):

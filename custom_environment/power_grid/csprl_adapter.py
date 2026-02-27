@@ -309,7 +309,7 @@ class CSPRLGridAdapter:
         for bus_idx, data in bus_loads.items():
             required = data['required']
             available = data['available']
-            grid_utilization_list.append(required / available)
+            grid_utilization_list.append(required / (available + 1e-9))
             if required > available and required > 0:
                 shortage = required - available
                 # Penalty proportional to overload ratio

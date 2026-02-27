@@ -1,15 +1,16 @@
 import json
-import numpy as np
 import os
 import sys
 
-# Ensure we can import evaluation_framework from parent directory (CSPRL/)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+# Ensure we can import modules from project root (d:/CSPRL-Refactor)
+current_dir = os.path.dirname(os.path.abspath(__file__)) # src/preprocessing
+src_dir = os.path.dirname(current_dir) # src
+project_root = os.path.dirname(src_dir) # root
 
-import evaluation_framework as ef
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+import custom_environment.helpers as ef
 
 
 def generate_lookup():
@@ -90,8 +91,8 @@ def generate_lookup():
     # Sort keys for cleaner JSON
     sorted_final = {str(k): final_lookup[str(k)] for k in sorted(map(int, final_lookup.keys()))}
 
-    # Save to CSPRL/data/config_lookup.json
-    output_path = os.path.join(parent_dir, "data", "config_lookup.json")
+    # Save to custom_environment/data/processed/config_lookup.json
+    output_path = os.path.join(project_root, "custom_environment", "data", "processed", "config_lookup.json")
 
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
