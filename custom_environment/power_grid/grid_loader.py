@@ -368,6 +368,7 @@ class GridLoader:
             lat: float,
             lon: float,
             voltage_kv: float = 22.0,
+            prefer_available: bool = False
     ) -> Dict[str, Any]:
         """
         Tìm bus gần nhất với tọa độ GPS cho trước.
@@ -378,6 +379,7 @@ class GridLoader:
             lat: Vĩ độ (latitude)
             lon: Kinh độ (longitude)
             voltage_kv: Cấp điện áp của bus cần tìm (mặc định 22kV cho trạm sạc)
+            prefer_available: Nếu True, ưu tiên chọn bus còn công suất ngay cả khi xa hơn một chút.
 
         Returns:
             Dictionary với bus_idx, distance_km, bus_name, available_capacity
@@ -397,8 +399,9 @@ class GridLoader:
             return {"error": f"Không tìm thấy bus {voltage_kv}kV nào"}
 
         # Tính khoảng cách đến từng bus (Haversine simplified)
-        min_dist = float('inf')
+        best_score = float('inf')
         nearest_idx = None
+        min_dist = float('inf')
 
         for idx, row in candidate_buses.iterrows():
             # geodata stored as (x=lon, y=lat)
@@ -416,15 +419,25 @@ class GridLoader:
 
             # Approximate distance in km (Euclidean on lat/lon * 111km/degree)
             dist = np.sqrt((lat - bus_lat) ** 2 + (lon - bus_lon) ** 2) * 111
+            
+            # Simple scoring: distance + penalty if no capacity
+            score = dist
+            if prefer_available:
+                capacity_info = self.get_available_capacity(idx)
+                if capacity_info["available_mw"] <= 0:
+                    # Add a large distance penalty (e.g., 5km) to overloaded buses
+                    # This makes the agent prefer a bus with capacity within 5km over an overloaded one nearby
+                    score += 5.0 
 
-            if dist < min_dist:
+            if score < best_score:
+                best_score = score
                 min_dist = dist
                 nearest_idx = idx
 
         if nearest_idx is None:
             return {"error": "Không tìm thấy bus nào có tọa độ"}
 
-        # Lấy thông tin capacity
+        # Lấy thông tin capacity cho bus tốt nhất tìm được
         capacity_info = self.get_available_capacity(nearest_idx)
 
         return {

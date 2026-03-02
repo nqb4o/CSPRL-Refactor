@@ -105,7 +105,7 @@ class CSPRLGridAdapter:
         cache_key = (round(lat, 4), round(lon, 4))
 
         if cache_key not in self._bus_cache:
-            result = self.loader.find_nearest_bus(lat, lon, voltage_kv=22.0)
+            result = self.loader.find_nearest_bus(lat, lon, voltage_kv=22.0, prefer_available=True)
             self._bus_cache[cache_key] = result
 
         return self._bus_cache[cache_key]
@@ -312,9 +312,10 @@ class CSPRLGridAdapter:
             grid_utilization_list.append(required / (available + 1e-9))
             if required > available and required > 0:
                 shortage = required - available
-                # Penalty proportional to overload ratio
-                ratio = shortage / required
-                bus_penalty = PENALTY_CAPACITY_WEIGHT * min(1.0, ratio)
+                # Penalty proportional to overload ratio, but let it grow beyond 1.0 
+                # to provide gradient for the RL agent even when highly overloaded.
+                ratio = shortage / available if available > 0 else shortage / self.ev_station_power_mw
+                bus_penalty = PENALTY_CAPACITY_WEIGHT * ratio
                 total_penalty -= bus_penalty
 
         grid_utilization = np.mean(grid_utilization_list, dtype=np.float32).item()
