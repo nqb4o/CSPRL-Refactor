@@ -173,7 +173,7 @@ def station_coverage(my_station, my_node_list):
     return node_counts
 
 
-def station_coverage_diminishing(my_station, my_node_list):
+def station_benefit(my_station, my_node_list):
     """
     Yields the benefit of nodes within a station's influential radius.
     More nodes covered = more benefit (no diminishing returns here).
@@ -198,7 +198,7 @@ def station_coverage_diminishing(my_station, my_node_list):
     return normalized_coverage
 
 
-def node_coverage(my_plan, my_node):
+def node_benefit(my_plan, my_node):
     """
     yields the number of station nodes which cover a given node
     """
@@ -210,7 +210,7 @@ def node_coverage(my_plan, my_node):
         distance = haversine(s_pos, my_node)
         if distance <= radius_s:
             station_counts += 1
-
+    my_node[1]['n_stations'] = station_counts
     for ith in range(station_counts):
         diminishing_benefit += 1 / (
                     ith + 1)  # diminishing return, as more stations cover node v, the higher the benefit
@@ -291,21 +291,21 @@ def social_benefit(my_plan, my_node_list):
 
     # Component 1: Node perspective - how well are nodes covered by stations
     # (how many charging stations can each node access)
-    node_coverage_total = 0
+    node_benefit_total = 0
     for my_node in my_node_list:
-        node_coverage_total += node_coverage(my_plan, my_node)
-    node_coverage_avg = node_coverage_total / len(my_node_list)
+        node_benefit_total += node_benefit(my_plan, my_node)
+    node_benefit_total = node_benefit_total / len(my_node_list)
 
     # Component 2: Station perspective - how efficiently do stations cover nodes
     # (with diminishing returns to encourage balanced coverage)
-    station_coverage_total = 0
+    station_benefit_total = 0
     for station in my_plan:
-        station_coverage_total += station_coverage_diminishing(station, my_node_list)
-    station_coverage_avg = station_coverage_total / len(my_plan)
+        station_benefit_total += station_benefit(station, my_node_list)
+    station_benefit_total = station_benefit_total / len(my_plan)
 
     # Balance both components equally
     # This ensures neither metric dominates the benefit calculation
-    my_benefit = (node_coverage_avg + station_coverage_avg) / 2
+    my_benefit = (node_benefit_total + station_benefit_total) / 2
     return my_benefit
 
 
@@ -470,11 +470,11 @@ def coverage(my_node_list, my_plan):
     see which nodes are covered by the charging plan
     """
     for my_node in my_node_list:
-        cover = node_coverage(my_plan, my_node)
-        my_node[1]["covered"] = cover
+        cover = node_benefit(my_plan, my_node)
+        my_node[1]["benefit"] = cover
 
 
-def choose_node_new_benefit(free_list, all_node_list, R_search=10):
+def choose_node_new_benefit(free_list, all_node_list, R_search=0.1):
     """
     pick location with highest potential based on Potential/Coverage.
     """
@@ -487,10 +487,10 @@ def choose_node_new_benefit(free_list, all_node_list, R_search=10):
             if dist <= R_search:
                 local_demand += weak_demand(node)
         
-        current_coverage = candidate_node[1].get("covered", 0)
-        score = local_demand / (current_coverage + epsilon)
+        current_coverage = candidate_node[1].get("n_stations", 0)
+        _score = local_demand / (current_coverage + epsilon)
         
-        potential_scores.append(score)
+        potential_scores.append(_score)
     best_index = np.argmax(potential_scores)
     
     return free_list[best_index]
@@ -520,20 +520,18 @@ def anti_choose_node_bybenefit(my_node_list, my_plan):
     """
     choose station with the least coverage
     """
-    plan_list = [station[0][0] for station in my_plan]
-    my_occupied_list = [node for node in my_node_list if node[0] in plan_list]
-    if not my_occupied_list:
+    if not my_plan:
         return None
-    upbound_list = [node[1]["upper_bound"] for node in my_occupied_list]
-    pos_minindex = upbound_list.index(min(upbound_list))
-    remove_node = my_occupied_list[pos_minindex]
-    plan_index = plan_list.index(remove_node[0])
-    remove_station = my_plan[plan_index]
+    
+    coverage_scores = [station_benefit(station, my_node_list)
+                       for station in my_plan]
+    min_coverage_index = np.argmin(coverage_scores)
+    remove_station = my_plan[min_coverage_index]
     return remove_station
 
 
 def _support_stations(station):
-    charg_time = station[2]["D_s"] / (station[2]["service rate"] + 1e-6)  # not sure why this need
+    charg_time = station[2]["D_s"] / (station[2]["service rate"] + 1e-6)
     wait_time = station[2]["D_s"] * station[2]["W_s"]
     neediness = (wait_time + charg_time)
     return neediness

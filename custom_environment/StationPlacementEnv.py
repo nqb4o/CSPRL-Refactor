@@ -155,7 +155,7 @@ class StationPlacement(gym.Env):
         self.budget = None
         self.plan_instance = None
         self.plan_length = None
-        self.row_length = 5
+        self.row_length = 6
         self.best_score = None
         self.best_plan = None
         self.best_node_list = None
@@ -165,7 +165,7 @@ class StationPlacement(gym.Env):
         self.feature_scaler = FeatureScaler()
         # new action space including all charger types
         self.action_space = spaces.Discrete(5)
-        shape = (self.row_length + 1) * len(self.node_list) + 1
+        shape = self.row_length * len(self.node_list)
         self.observation_space = spaces.Box(low=-1, high=1, shape=(shape,), dtype=np.float16)
 
     def reset(self, seed=None, options=None):
@@ -222,8 +222,8 @@ class StationPlacement(gym.Env):
         """
         Build observation matrix
         """
-        row_length = self.row_length + 1
-        width = row_length * len(self.node_list) + 1
+        row_length = self.row_length
+        width = row_length * len(self.node_list)
         obs = np.zeros(width, dtype=np.float32)
 
         for j, node in enumerate(self.node_list):
@@ -232,19 +232,19 @@ class StationPlacement(gym.Env):
             # obs[i + 1] = self.feature_scaler.scale_lat(node[1]['y'])
             obs[i + 0] = H.dynamic_demand(node, self.plan_instance.plan)
             obs[i + 1] = self.feature_scaler.scale_land_price(node[1]['land_price'])
-            # obs[i + 2] = self.feature_scaler.scale_private_cs(node[1]['private_cs'])z
+            # obs[i + 2] = self.feature_scaler.scale_private_cs(node[1]['private_cs'])
             obs[i + 2] = 2 * (np.clip(node[1].get('grid_distance_km', 3.0), 0, 3.0) / 3.0) - 1
             obs[i + 3] = 2 * (np.clip(node[1].get('grid_available_mw', 0.0), 0, 10.0) / 10.0) - 1
-            obs[i + 4] = 2 * (np.clip(node[1].get('covered', 0.0), 0, 10.0) / 10.0) - 1
+            obs[i + 4] = node[1].get('benefit', 0.0)
 
             for station in self.plan_instance.plan:
                 if station[0][0] == node[0]:
                     # for e in range(len(H.CHARGING_POWER)):
                         # obs[i + self.row_length + e] = self.feature_scaler.scale_charger_count(station[1][e])
-                    obs[i + self.row_length + 1] = station[2]["capability"]
+                    obs[i + self.row_length - 1] = station[2]["capability"]
                     break
 
-        obs[-1] = self.feature_scaler.scale_budget(self.budget)
+        # obs[-1] = self.feature_scaler.scale_budget(self.budget)
         return obs
 
     def budget_adjustment(self, my_station):
