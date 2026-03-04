@@ -63,6 +63,15 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
                         self.save_path = os.path.join(self.log_dir, new_name)
                         print("Saving new best model to {}".format(self.save_path))
                     self.model.save(self.save_path)
+                else:
+                    if self.verbose > 0:
+                        new_name = self.modelname + str(self.num_timesteps)
+                        if self.save_path is not None:
+                            os.makedirs(self.save_path, exist_ok=True)
+                        self.save_path = os.path.join(self.log_dir, new_name)
+                        print("Saving model on frequency to {}".format(self.save_path))
+                    self.model.save(self.save_path)
+
         return True
 
 
@@ -83,7 +92,7 @@ if __name__ == '__main__':
     plan_file = os.path.join(base_dir, "Graph", location, "existingplan_" + location + ".pkl")
 
     env = StationPlacement(graph_file, node_file, plan_file, location=location)
-    log_dir = f"Results/tmp/{location}/"
+    log_dir = f"Results/tmp3/{location}/"
     modelname = "best_model_" + location + "_"
 
     """
