@@ -43,9 +43,9 @@ def cost_single(my_node, my_station, my_node_dict, my_cost_dict):
     if isinstance(cached_entry, dict) and cached_entry.get("state") == station_signature:
         node_cost = cached_entry["cost"]
     else:
-        cost_travel = alpha * distance / VELOCITY
+        cost_travel = alpha * distance / VELOCITY * (1 + weak_demand(my_node)) # demand as traffic density factor
         cost_boring = (1 - alpha) * (s_dict["W_s"] + 1 / (s_dict["service rate"] + eps))
-        node_cost = weak_demand(my_node) * (cost_travel + cost_boring)
+        node_cost = cost_travel + cost_boring
         my_cost_dict[node_id][station_id] = {
             "state": station_signature,
             "cost": node_cost
@@ -236,7 +236,7 @@ def service_rate(my_station):
     returns how many cars can be served within one hour
     """
     s_pos, s_x, s_dict = my_station[0], my_station[1], my_station[2]
-    s_dict["service rate"] = s_dict["capability"] / BATTERY  # [service rate] = 1/h
+    s_dict["service rate"] = s_dict["capability"] * 1000 / BATTERY  # [service rate] = 1/h
     return my_station
 
 
@@ -311,7 +311,7 @@ def social_benefit(my_plan, my_node_list):
 
 def travel_cost(my_node_list):
     """ yields the estimated travel time of all vehicles """
-    my_cost_travel = sum([my_node[1]["distance"] * weak_demand(my_node) / VELOCITY for my_node in my_node_list])
+    my_cost_travel = sum([my_node[1]["distance"] * (1 + weak_demand(my_node)) / VELOCITY for my_node in my_node_list])
     return my_cost_travel
 
 
@@ -545,7 +545,7 @@ def support_stations(my_plan, free_list):
     if not cost_list:
         chosen_node = choose_node_bydemand(free_list)
     else:
-        index = cost_list.index(max(cost_list))
+        index = np.argmax(cost_list)
         station_sos = my_plan[index]
         if sum(station_sos[1]) < K:
             chosen_node = station_sos[0]
@@ -563,7 +563,7 @@ graph_file = f"custom_environment/data/Graph/{location}/{location}.graphml"
 graph = nx.read_graphml(graph_file)
 
 # Parameters ########################################################
-alpha = 0.4
+alpha = 0.8
 my_lambda = 0.5
 eps = 1e-9
 ev_per_capita = 0.022

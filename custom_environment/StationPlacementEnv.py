@@ -165,7 +165,7 @@ class StationPlacement(gym.Env):
         self.feature_scaler = FeatureScaler()
         # new action space including all charger types
         self.action_space = spaces.Discrete(5)
-        shape = self.row_length * len(self.node_list)
+        shape = self.row_length * len(self.node_list) + 1
         self.observation_space = spaces.Box(low=-1, high=1, shape=(shape,), dtype=np.float16)
 
     def reset(self, seed=None, options=None):
@@ -223,28 +223,43 @@ class StationPlacement(gym.Env):
         Build observation matrix
         """
         row_length = self.row_length
-        width = row_length * len(self.node_list)
+        width = row_length * len(self.node_list) + 1
         obs = np.zeros(width, dtype=np.float32)
 
         for j, node in enumerate(self.node_list):
             i = j * row_length
-            # obs[i + 0] = self.feature_scaler.scale_lon(node[1]['x'])
-            # obs[i + 1] = self.feature_scaler.scale_lat(node[1]['y'])
-            obs[i + 0] = H.dynamic_demand(node, self.plan_instance.plan)
+            dyn_demand = H.dynamic_demand(node, self.plan_instance.plan)
+            obs[i + 0] = 2 * (np.clip(dyn_demand, 0, 1) - 0.5)
             obs[i + 1] = self.feature_scaler.scale_land_price(node[1]['land_price'])
-            # obs[i + 2] = self.feature_scaler.scale_private_cs(node[1]['private_cs'])
-            obs[i + 2] = 2 * (np.clip(node[1].get('grid_distance_km', 3.0), 0, 3.0) / 3.0) - 1
-            obs[i + 3] = 2 * (np.clip(node[1].get('grid_available_mw', 0.0), 0, 10.0) / 10.0) - 1
-            obs[i + 4] = node[1].get('benefit', 0.0)
-
+            obs[i + 2] = 2 * (np.clip(node[1].get('grid_distance_km', 3.0), 0, 3.0) / 3.0 - 0.5)  # Fixed to -1..1
+            obs[i + 3] = 2 * (np.clip(node[1].get('grid_available_mw', 0.0), 0, 10.0) / 10.0 - 0.5)
+            benefit = node[1].get('benefit', 0.0)
+            obs[i + 4] = 2 * (np.clip(benefit / 5.0, 0, 1) - 0.5)
+            capability = 0.0
             for station in self.plan_instance.plan:
                 if station[0][0] == node[0]:
-                    # for e in range(len(H.CHARGING_POWER)):
-                        # obs[i + self.row_length + e] = self.feature_scaler.scale_charger_count(station[1][e])
-                    obs[i + self.row_length - 1] = station[2]["capability"]
+                    capability = station[2]["capability"]
                     break
+            obs[i + 5] = 2 * (np.clip(capability / 10.0, 0, 1) - 0.5)
+            # # obs[i + 6] = self.feature_scaler.scale_private_cs(node[1]['private_cs'])
+            # obs[i + 6] = self.feature_scaler.scale_pop(node[1]['pop'])
+            # obs[i + 7] = self.feature_scaler.scale_lon(node[1]['x'])
+            # obs[i + 8] = self.feature_scaler.scale_lat(node[1]['y'])
 
-        # obs[-1] = self.feature_scaler.scale_budget(self.budget)
+        # Globals (last 1)
+        global_i = self.row_length * len(self.node_list)
+        obs[global_i + 0] = self.feature_scaler.scale_budget(self.budget)
+        # obs[global_i + 1] = 2 * (self.schritt / (len(self.node_list) / 2) - 0.5)
+        # obs[global_i + 2] = 2 * (len(self.plan_instance.plan) / len(self.node_list) - 0.5)
+        # _, benefit, cost = H.score(self.plan_instance.plan, self.node_list)  # Or use norm_score
+        # obs[global_i + 3] = 2 * (np.clip(benefit / self.plan_instance.norm_benefit, 0, 1) - 0.5)
+        # obs[global_i + 4] = 2 * (np.clip(cost / self.plan_instance.norm_cost, 0, 1) - 0.5)  # Invert if lower is better
+        # if self.grid_adapter:
+        #     station_nodes = [(s[0], s[2]["capability"]) for s in self.plan_instance.plan]
+        #     grid_penalty, _, _ = self.grid_adapter.calculate_grid_penalty(station_nodes)
+        #     obs[global_i + 5] = 2 * (np.clip(grid_penalty / 10.0, -1, 0) + 0.5)  # Assuming penalty negative
+        # else:
+        #     obs[global_i + 5] = 0.0
         return obs
 
     def budget_adjustment(self, my_station):
