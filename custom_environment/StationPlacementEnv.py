@@ -69,7 +69,7 @@ class Plan:
         my_node_list, _, _ = H.station_seeking(self.plan, my_node_list, my_node_dict, my_cost_dict)
         # update the dictionnary
         self.plan = [H.s_dictionnary(my_station, my_node_list) for my_station in self.plan]
-        self.norm_benefit, self.norm_cost, self.norm_charg, self.norm_wait, self.norm_travel = \
+        self.norm_benefit, self.norm_cost, self.norm_fairness, self.norm_charg, self.norm_wait, self.norm_travel = \
             H.existing_score(self.plan, my_node_list)
         self.existing_plan = self.plan.copy()
         self.existing_plan = [s[0] for s in self.existing_plan]
@@ -180,9 +180,10 @@ class StationPlacement(gym.Env):
         self.game_over = False
         self.plan_instance = Plan(self.node_list, StationPlacement.node_dict, StationPlacement.cost_dict,
                                   self.plan_file)
-        self.best_score, _, _, _, _, _ = H.norm_score(self.plan_instance.plan, self.node_list,
-                                                       self.plan_instance.norm_benefit, self.plan_instance.norm_charg,
-                                                       self.plan_instance.norm_wait, self.plan_instance.norm_travel)
+        self.best_score, _, _, _, _, _, _ = H.norm_score(self.plan_instance.plan, self.node_list,
+                                                         self.plan_instance.norm_benefit, self.plan_instance.norm_charg,
+                                                         self.plan_instance.norm_wait, self.plan_instance.norm_travel,
+                                                         self.plan_instance.norm_fairness)
 
         # Extend node features with grid data (if available)
         if self.grid_adapter:
@@ -241,25 +242,11 @@ class StationPlacement(gym.Env):
                     capability = station[2]["capability"]
                     break
             obs[i + 5] = 2 * (np.clip(capability / 10.0, 0, 1) - 0.5)
-            # # obs[i + 6] = self.feature_scaler.scale_private_cs(node[1]['private_cs'])
-            # obs[i + 6] = self.feature_scaler.scale_pop(node[1]['pop'])
-            # obs[i + 7] = self.feature_scaler.scale_lon(node[1]['x'])
-            # obs[i + 8] = self.feature_scaler.scale_lat(node[1]['y'])
 
         # Globals (last 1)
         global_i = self.row_length * len(self.node_list)
         obs[global_i + 0] = self.feature_scaler.scale_budget(self.budget)
-        # obs[global_i + 1] = 2 * (self.schritt / (len(self.node_list) / 2) - 0.5)
-        # obs[global_i + 2] = 2 * (len(self.plan_instance.plan) / len(self.node_list) - 0.5)
-        # _, benefit, cost = H.score(self.plan_instance.plan, self.node_list)  # Or use norm_score
-        # obs[global_i + 3] = 2 * (np.clip(benefit / self.plan_instance.norm_benefit, 0, 1) - 0.5)
-        # obs[global_i + 4] = 2 * (np.clip(cost / self.plan_instance.norm_cost, 0, 1) - 0.5)  # Invert if lower is better
-        # if self.grid_adapter:
-        #     station_nodes = [(s[0], s[2]["capability"]) for s in self.plan_instance.plan]
-        #     grid_penalty, _, _ = self.grid_adapter.calculate_grid_penalty(station_nodes)
-        #     obs[global_i + 5] = 2 * (np.clip(grid_penalty / 10.0, -1, 0) + 0.5)  # Assuming penalty negative
-        # else:
-        #     obs[global_i + 5] = 0.0
+
         return obs
 
     def budget_adjustment(self, my_station):
@@ -406,10 +393,10 @@ class StationPlacement(gym.Env):
         """
         reward = 0
         self.prepare_score()
-        new_score, benefit, cost, charg_time, wait_time, cost_travel = H.norm_score(self.plan_instance.plan, self.node_list,
-                                                 self.plan_instance.norm_benefit, self.plan_instance.norm_charg,
-                                                 self.plan_instance.norm_wait, self.plan_instance.norm_travel)
-
+        new_score, _, _, _, _, _, _ = H.norm_score(self.plan_instance.plan, self.node_list,
+                                                         self.plan_instance.norm_benefit, self.plan_instance.norm_charg,
+                                                         self.plan_instance.norm_wait, self.plan_instance.norm_travel,
+                                                         self.plan_instance.norm_fairness)
 
         # Add Grid Penalty (if adapter is active)
         if self.grid_adapter:

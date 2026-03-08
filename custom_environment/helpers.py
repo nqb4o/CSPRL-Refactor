@@ -278,6 +278,20 @@ def s_dictionnary(my_station, my_node_list):
 
 
 # SCORE over the plan #####################################################################
+def social_fairness(my_node_list):
+    """
+    Return a scalar fairness score for the node coverage distribution.
+    Higher values indicate more fair (more even) coverage across nodes.
+    We use the inverse of the standard deviation of station counts so that
+    perfectly even coverage -> higher fairness, and skewed coverage -> lower fairness.
+    """
+    counts = np.array([node[1].get('n_stations', 0) for node in my_node_list], dtype=float)
+    if counts.size == 0:
+        return 0.0
+    std = float(np.std(counts))
+    return 1.0 / (1.0 + std)
+
+
 def social_benefit(my_plan, my_node_list):
     """
     Returns the social benefit of the charging plan.
@@ -356,10 +370,11 @@ def existing_score(my_existing_plan, my_node_list):
     wait_time = waiting_time(my_existing_plan)
     cost_boring = charg_time + wait_time  # dimensionless
     my_cost = alpha * travel_time + (1 - alpha) * cost_boring
-    return my_benefit, my_cost, charg_time, wait_time, travel_time
+    my_fairness = social_fairness(my_node_list)
+    return my_benefit, my_cost, my_fairness, charg_time, wait_time, travel_time
 
 
-def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_travel):
+def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_travel, norm_fairness):
     """
     same as score, but normalised.
     """
@@ -371,8 +386,10 @@ def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_
     charg_time = charging_time(my_plan) / norm_charg # dimensionless
     wait_time = waiting_time(my_plan) / norm_wait # dimensionless
     cost = (alpha * cost_travel + (1 - alpha) * (charg_time + wait_time)) / 3
-    my_score = my_lambda * benefit - (1 - my_lambda) * cost
-    return my_score, benefit, cost, charg_time, wait_time, cost_travel
+    fairness = social_fairness(my_node_list) / norm_fairness
+    my_score = 1/3 * benefit - 1/3 * cost + 1/3 * fairness
+    print(my_score, benefit, cost, fairness, charg_time, wait_time, cost_travel)
+    return my_score, benefit, cost, fairness, charg_time, wait_time, cost_travel
 
 
 def score(my_plan, my_node_list):
@@ -486,13 +503,13 @@ def choose_node_new_benefit(free_list, all_node_list, R_search=0.1):
             dist = haversine(candidate_node, node)
             if dist <= R_search:
                 local_demand += weak_demand(node)
-        
+
         current_coverage = candidate_node[1].get("n_stations", 0)
         _score = local_demand / (current_coverage + epsilon)
-        
+
         potential_scores.append(_score)
     best_index = np.argmax(potential_scores)
-    
+
     return free_list[best_index]
 
 
@@ -522,7 +539,7 @@ def anti_choose_node_bybenefit(my_node_list, my_plan):
     """
     if not my_plan:
         return None
-    
+
     coverage_scores = [station_benefit(station, my_node_list)
                        for station in my_plan]
     min_coverage_index = np.argmin(coverage_scores)
