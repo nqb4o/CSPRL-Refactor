@@ -7,6 +7,7 @@ from random import choice
 import custom_environment.helpers as H
 import sys
 import os
+import copy
 
 # Add parent directory to path to allow importing power_grid
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -275,7 +276,7 @@ class StationPlacement(gym.Env):
                                                       StationPlacement.cost_dict)
             for i in range(len(self.plan_instance.plan)):
                 self.plan_instance.plan[i] = H.total_number_EVs(self.plan_instance.plan[i], self.node_list)
-                self.plan_instance.plan[i] = H.W_s(self.plan_instance.plan[i])
+                self.plan_instance.plan[i] = H.avg_waiting(self.plan_instance.plan[i])
             j += 1
 
     def step(self, my_action):
@@ -415,8 +416,8 @@ class StationPlacement(gym.Env):
             # reward += (new_score - self.best_score)
             # avoid jojo learning
             self.best_score = new_score
-            self.best_plan = self.plan_instance.plan.copy()
-            self.best_node_list = self.node_list.copy()
+            self.best_plan = copy.deepcopy(self.plan_instance.plan)
+            self.best_node_list = copy.deepcopy(self.node_list)
         return reward
 
     def render(self, mode='human', close=False):

@@ -1,4 +1,6 @@
 import json
+import pickle
+
 import osmnx as ox
 import numpy as np
 import networkx as nx
@@ -62,11 +64,14 @@ def station_seeking(my_plan, my_node_list, my_node_dict, my_cost_dict):
         for station in my_plan:
             node_cost, my_node_dict, my_cost_dict = cost_single(node, station, my_node_dict, my_cost_dict)
             cost_list.append(node_cost)
-        costminindex = int(np.argmin(cost_list))
+        costminindex = np.argmin(cost_list)
         chosen_station = my_plan[costminindex]
         s_pos = chosen_station[0]
         node[1]["charging station"] = s_pos[0]
         node[1]["distance"] = my_node_dict[node[0]][s_pos[0]]
+        # update cost
+        total_number_EVs(chosen_station, my_node_list)
+        avg_waiting(chosen_station)
     return my_node_list, my_node_dict, my_cost_dict
 
 
@@ -118,7 +123,7 @@ def charging_capability(my_station):
 def weak_demand(my_node):
     return my_node[1]["demand"] * (1 - 0.1 * my_node[1]["private_cs"])
 
-def dynamic_demand(my_node, my_plan, scaling_factor=0.4, distance_decay_factor=0.5):
+def dynamic_demand(my_node, my_plan, scaling_factor=0.5, distance_decay_factor=0.5):
     power_factor = 0
     base_demand = weak_demand(my_node)
     for station in my_plan:
@@ -240,27 +245,19 @@ def service_rate(my_station):
     return my_station
 
 
-def W_s(my_station, max_wait_multiplier=100):
+def avg_waiting(my_station):
     """
-    Returns the expected waiting time, capped to prevent 'infinite' spikes.
+    returns the expected value of waiting time
     """
     s_pos, s_x, s_dict = my_station[0], my_station[1], my_station[2]
-
-    # tau_s is the average service time
-    tau_s = 1 / (s_dict["service rate"] + 1e-6)
-    rho_s = s_dict["D_s"] * tau_s * time_unit
-
-    # CLIP RHO: We cap rho at 0.99 (or similar) so the denominator never hits zero.
-    # This prevents the 'massive' 10**6 jump.
-    rho_s_capped = min(rho_s, 0.999)
-
-    # Calculation (M/M/1 formula)
-    my_W_s = (rho_s_capped * tau_s) / (2 * (1 - rho_s_capped))
-
-    # Optional: Hard cap the final wait time to a multiple of service time
-    # e.g., waiting 100x longer than the service time is effectively 'infinite'
-    max_allowed = tau_s * max_wait_multiplier
-    s_dict["W_s"] = min(my_W_s, max_allowed)
+    tau_s = 1 / s_dict["service rate"]
+    rho_s = s_dict["D_s"] * tau_s * time_unit  # dimensionless (shortened away)
+    if rho_s >= 1:
+        my_W_s = my_inf
+        s_dict["W_s"] = my_W_s
+    else:
+        my_W_s = rho_s * tau_s / (2 * (1 - rho_s))  # W_s = expected waiting time at S, [W_s] = h
+        s_dict["W_s"] = my_W_s
     return my_station
 
 
@@ -273,7 +270,7 @@ def s_dictionnary(my_station, my_node_list):
     my_station = influence_radius(my_station)
     my_station = total_number_EVs(my_station, my_node_list)
     my_station = service_rate(my_station)
-    my_station = W_s(my_station)
+    my_station = avg_waiting(my_station)
     return my_station
 
 
@@ -387,8 +384,9 @@ def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_
     wait_time = waiting_time(my_plan) / norm_wait # dimensionless
     cost = (alpha * cost_travel + (1 - alpha) * (charg_time + wait_time)) / 3
     fairness = social_fairness(my_node_list) / norm_fairness
-    my_score = 1/3 * benefit - 1/3 * cost + 1/3 * fairness
-    print(my_score, benefit, cost, fairness, charg_time, wait_time, cost_travel)
+    # print(norm_benefit, norm_charg, norm_wait, norm_travel, norm_fairness)
+    # print(social_benefit(my_plan, my_node_list), charging_time(my_plan), waiting_time(my_plan), travel_cost(my_node_list), social_fairness(my_node_list))
+    my_score = 0.3 * benefit - 0.3 * cost + 0.3 * fairness
     return my_score, benefit, cost, fairness, charg_time, wait_time, cost_travel
 
 
@@ -491,7 +489,7 @@ def coverage(my_node_list, my_plan):
         my_node[1]["benefit"] = cover
 
 
-def choose_node_new_benefit(free_list, all_node_list, R_search=0.1):
+def choose_node_new_benefit(free_list, all_node_list, R_search=0.3):
     """
     pick location with highest potential based on Potential/Coverage.
     """
