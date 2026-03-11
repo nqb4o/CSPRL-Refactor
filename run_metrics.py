@@ -33,29 +33,30 @@ def waiting_metric(my_plan):
 
 
 def eci_test(my_plan, my_node_list, my_norm_benefit, my_norm_charging, my_norm_waiting,
-             my_norm_travel):
-    score, benefit, cost, charg_time, wait_time, cost_travel = H.norm_score(my_plan, my_node_list, my_norm_benefit,
+             my_norm_travel, my_norm_fairness):
+    score, benefit, cost, fairness, charg_time, wait_time, cost_travel = H.norm_score(my_plan, my_node_list, my_norm_benefit,
                                                                              my_norm_charging, my_norm_waiting,
-                                                                             my_norm_travel)
+                                                                             my_norm_travel, my_norm_fairness)
     return score
 
 
 def test(my_plan, my_node_list, my_basic_cost, my_norm_benefit, my_norm_charging, my_norm_waiting,
-         my_norm_travel, my_norm_score):
+         my_norm_travel, my_norm_score, my_norm_fairness):
     """
     prints results of the evaulation metrics
     """
     travel_max = travel_metric(my_node_list)
     wait_max = waiting_metric(my_plan)
-    score, benefit, cost, charg_time, wait_time, cost_travel = H.norm_score(my_plan, my_node_list, my_norm_benefit,
+    score, benefit, cost, fairness, charg_time, wait_time, cost_travel = H.norm_score(my_plan, my_node_list, my_norm_benefit,
                                                                              my_norm_charging, my_norm_waiting,
-                                                                             my_norm_travel)
+                                                                             my_norm_travel, my_norm_fairness)
     # test if solution satisfies all constraints
     H.constraint_check(my_plan, my_node_list, my_basic_cost)
     total_inst_cost = (sum([my_station[2]["fee"] for my_station in my_plan]) - my_basic_cost) / H.BUDGET
     score = score / my_norm_score * 100
     print("The score is {}".format(score))
     print("Benefit: {}".format(benefit * 100))
+    print("Fairness: {}".format(fairness * 100))
     print("Waiting time: {}, Travel time: {}, Charging time: {}".format(wait_time * 100, cost_travel * 100,
                                                                         charg_time * 100))
     print(travel_max, wait_max)
@@ -70,25 +71,23 @@ def prepare_existing_plan(my_plan, my_node_list):
         my_node[1]["charging station"] = None
         my_node[1]["distance"] = None
 
-    for j in range(2):
-        for index in range(len(my_plan)):
-            my_plan[index] = H.s_dictionnary(my_plan[index], my_node_list)
-        my_node_list, _, _ = H.station_seeking(my_plan, my_node_list, my_node_dict, my_cost_dict)
-        j += 1
+    for index in range(len(my_plan)):
+        my_plan[index] = H.s_dictionnary(my_plan[index], my_node_list)
+    my_node_list, _, _ = H.station_seeking(my_plan, my_node_list, my_node_dict, my_cost_dict)
     for index in range(len(my_plan)):
         my_plan[index] = H.s_dictionnary(my_plan[index], my_node_list)
     return my_node_list, my_plan
 
 
 def perform_test(my_node_file, my_basic_cost, my_result_file, my_norm_benefit, my_norm_charging,
-                 my_norm_waiting, my_norm_travel, my_norm_score):
+                 my_norm_waiting, my_norm_travel, my_norm_fairness, my_norm_score):
     with open(my_node_file, "r") as file:
         my_node_list = eval(file.readline())
     with (open(my_result_file, "rb")) as f:
         my_plan = pickle.load(f)
     print("Number of charging stations: {}".format(len(my_plan)))
     test(my_plan, my_node_list, my_basic_cost, my_norm_benefit, my_norm_charging, my_norm_waiting,
-         my_norm_travel, my_norm_score)
+         my_norm_travel, my_norm_score, my_norm_fairness)
 
 
 if __name__ == '__main__':
@@ -110,12 +109,12 @@ if __name__ == '__main__':
 
     node_list, plan = prepare_existing_plan(plan, node_list)
     basic_cost = sum([station[2]["fee"] for station in plan])
-    norm_benefit, norm_cost, norm_charging, norm_waiting, norm_travel = H.existing_score(plan, node_list)
-    norm_score = eci_test(plan, node_list, norm_benefit, norm_charging, norm_waiting, norm_travel)
-    test(plan, node_list, basic_cost, norm_benefit, norm_charging, norm_waiting, norm_travel, norm_score)
-
+    norm_benefit, norm_cost, norm_fairness, norm_charging, norm_waiting, norm_travel = H.existing_score(plan, node_list)
+    norm_score = eci_test(plan, node_list, norm_benefit, norm_charging, norm_waiting, norm_travel, norm_fairness)
+    test(plan, node_list, basic_cost, norm_benefit, norm_charging, norm_waiting, norm_travel, norm_score, norm_fairness)
+    pickle.dump(plan, open("Results/" + "debug/" + location + f"/existing_plan.pkl", "wb"))
     print("Reinforcement Learning")
-    step = 78800
+    step = 61600
     node_file = "Results/" + "optimal_plan/" + location + f"/nodes_RL_{step}.txt"
     result_file = "Results/" + "optimal_plan/" + location + f"/plan_RL_{step}.pkl"
-    perform_test(node_file, basic_cost, result_file, norm_benefit, norm_charging, norm_waiting, norm_travel, norm_score)
+    perform_test(node_file, basic_cost, result_file, norm_benefit, norm_charging, norm_waiting, norm_travel, norm_fairness, norm_score)

@@ -6,7 +6,7 @@ import numpy as np
 
 # Configuration
 LOCATION = "DongDa"
-STEP = 78800
+STEP = 119200
 RESULT_FILE = f"Results/optimal_plan/{LOCATION}/plan_RL_{STEP}.pkl"
 OUTPUT_CSV = f"Results/optimal_plan/{LOCATION}/station_config_{STEP}.csv"
 
@@ -55,6 +55,8 @@ def export_station_config():
             "Install_Fee": station[2].get("fee", 0),
             "Service_Rate_per_h": round(station[2].get("service rate", 0), 2),
             "Expected_Wait_Time_h": round(station[2].get("W_s", 0), 4),
+            "Number of EVs": station[2].get("D_s", 0),
+            "Charging Time": station[2].get("D_s", 0) / station[2].get("service rate", 0),
             "Charger_Config": ", ".join(config_str),
             "Total_Chargers": sum(charger_counts)
         }
@@ -71,8 +73,8 @@ def export_station_config():
 
     # Reorder columns to put main info first
     cols = ["Station_ID", "Node_ID", "Latitude", "Longitude", "Total_Capacity_kW",
-            "Total_Chargers", "Charger_Config", "Install_Fee",
-            "Service_Rate_per_h", "Expected_Wait_Time_h"]
+            "Total_Chargers", "Charger_Config", "Install_Fee", "Charging Time",
+            "Service_Rate_per_h", "Expected_Wait_Time_h", "Number of EVs"]
     # Append dynamic columns
     dt_cols = [c for c in df.columns if c.startswith("Qty_")]
     final_cols = cols + dt_cols
@@ -85,8 +87,8 @@ def export_station_config():
     print("-" * 50)
     print(f"Successfully exported configuration to:\n{os.path.abspath(OUTPUT_CSV)}")
     print("-" * 50)
-    print(df[["Station_ID", "Total_Capacity_kW", "Charger_Config"]].to_string())
-
+    print(df[["Station_ID", "Total_Capacity_kW", "Charger_Config", "Number of EVs", "Expected_Wait_Time_h", "Charging Time"]].to_string())
+    print("Total charg time:", df["Charging Time"].sum())
 
 if __name__ == "__main__":
     export_station_config()

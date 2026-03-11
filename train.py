@@ -92,7 +92,7 @@ if __name__ == '__main__':
     plan_file = os.path.join(base_dir, "Graph", location, "existingplan_" + location + ".pkl")
 
     env = StationPlacement(graph_file, node_file, plan_file, location=location)
-    log_dir = f"Results/tmp3/{location}/"
+    log_dir = f"Results/tmp6/{location}/"
     modelname = "best_model_" + location + "_"
 
     """
@@ -100,9 +100,9 @@ if __name__ == '__main__':
     """
     os.makedirs(log_dir, exist_ok=True)
     env = Monitor(env, os.path.join(log_dir, "monitor.csv"))
-    policy_kwargs = dict(net_arch=[128, 128]) # hidden layers
+    policy_kwargs = dict(net_arch=[256, 256]) # hidden layers
     model = DQN("MlpPolicy", env, verbose=1, batch_size=128, buffer_size=10000, learning_rate=1e-5,
-                exploration_initial_eps=1, exploration_final_eps=0.00, exploration_fraction=0.2, policy_kwargs=policy_kwargs,
+                exploration_initial_eps=1, exploration_final_eps=0.05, exploration_fraction=0.2, policy_kwargs=policy_kwargs,
                 device='cuda' if torch.cuda.is_available() else 'cpu', seed=seed)
     callback = SaveOnBestTrainingRewardCallback(check_freq=400, my_log_dir=log_dir, my_modelname=modelname)
     model.learn(total_timesteps=200000, log_interval=10 ** 4, callback=callback)

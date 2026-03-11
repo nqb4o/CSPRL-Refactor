@@ -50,14 +50,15 @@ def visualise_stations(my_graph, my_plan, my_filepath):
     fig, ax = ox.plot_graph(my_graph, node_color=nc, save=False, node_size=ns, edge_linewidth=0.2, edge_alpha=0.8,
                             show=False, close=False)
     ax.legend(legend_elements, labels, loc=2, prop={"size": 12})
-    plt.savefig(my_filepath)
+    if my_filepath is not None:
+        plt.savefig(my_filepath)
     plt.show()
 
 
 if __name__ == '__main__':
     # ox.config(use_cache=True, log_console=True)
     location = "DongDa"
-    step = 78800
+    step = 32800
     G = ox.load_graphml("custom_environment/data/Graph/" + location + "/" + location + ".graphml")
 
     with (open("Results/optimal_plan/" + location + f"/plan_RL_{step}.pkl", "rb")) as f:

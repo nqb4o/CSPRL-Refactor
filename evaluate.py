@@ -1,7 +1,9 @@
 from stable_baselines3 import DQN
 from stable_baselines3.common.monitor import Monitor
 import pickle
+import osmnx as ox
 from custom_environment.StationPlacementEnv import StationPlacement
+from visualise import visualise_stations
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
@@ -18,16 +20,17 @@ node_file = os.path.join(base_dir, "Graph", location, "nodes_extended_" + locati
 plan_file = os.path.join(base_dir, "Graph", location, "existingplan_" + location + ".pkl")
 
 env = StationPlacement(graph_file, node_file, plan_file)
-log_dir = f"Results/tmp/{location}/"
+log_dir = f"Results/tmp6/{location}/"
 
 """
 Start evaluating
 """
 print("Evaluation for best model")
 env = Monitor(env, log_dir)  # new environment for evaluation
+G = ox.load_graphml(graph_file)
 
-step = 78800
-model = DQN.load(log_dir + "best_model_" + location + f"_{step}")
+step = 94800
+model = DQN.load(log_dir + "best_model_" + location + f"_{step}.zip")
 
 obs, _ = env.reset()
 done = False
@@ -37,7 +40,8 @@ while not done:
     action, _states = model.predict(obs, deterministic=True)
     action_history.append(action.item())
     obs, reward, done, info, _ = env.step(action)
-    env.render()
+    node_list, plan = env.render()
+    # visualise_stations(G, plan, None)
     if done:
         best_node_list, best_plan = env.render()
 
