@@ -45,10 +45,8 @@ def cost_single(my_node, my_station, my_node_dict, my_cost_dict):
     if isinstance(cached_entry, dict) and cached_entry.get("state") == station_signature:
         node_cost = cached_entry["cost"]
     else:
-        EXPECTED_TRAVEL_HOURS = 0.25  # ~10km travel
-        EXPECTED_WAIT_HOURS = 1.0     # ~1 hour wait
-        cost_travel = (alpha * distance / VELOCITY * (1 + weak_demand(my_node))) / EXPECTED_TRAVEL_HOURS
-        cost_boring = ((1 - alpha) * (s_dict["W_s"] + 1 / (s_dict["service rate"] + eps))) / EXPECTED_WAIT_HOURS
+        cost_travel = alpha * distance / VELOCITY * (1 + weak_demand(my_node)) # demand as traffic density factor
+        cost_boring = (1 - alpha) * (s_dict["W_s"] + 1 / (s_dict["service rate"] + eps))
         node_cost = cost_travel + cost_boring
         my_cost_dict[node_id][station_id] = {
             "state": station_signature,
@@ -253,17 +251,10 @@ def avg_waiting(my_station):
     """
     s_pos, s_x, s_dict = my_station[0], my_station[1], my_station[2]
     tau_s = 1 / (s_dict["service rate"] + eps)
-    rho_s = s_dict["D_s"] * tau_s * time_unit  # dimensionless (shortened away)
+    rho_s = s_dict["D_s"] * tau_s * time_unit
     
-    threshold = 0.95
-    if rho_s <= threshold:
-        my_W_s = rho_s * tau_s / (2 * (1 - rho_s))  # W_s = expected waiting time at S, [W_s] = h
-    else:
-        # Linear extrapolation from threshold to prevent W_s from reaching infinity
-        W_thresh = threshold * tau_s / (2 * (1 - threshold))
-        derivative = tau_s / (2 * (1 - threshold)**2)
-        my_W_s = W_thresh + derivative * (rho_s - threshold)
-        
+    my_W_s = (tau_s / 2.0) * (rho_s + 0.1 * (rho_s ** 4))
+    
     s_dict["W_s"] = my_W_s
     return my_station
 
