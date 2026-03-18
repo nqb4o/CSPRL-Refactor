@@ -1,0 +1,2 @@
+name,n_buses,n_lines,n_trafos,n_loads,total_load_mw,n_500kv,n_220kv,n_110kv
+Hanoi Citywide Power Grid,282,245,114,182,516.15,3,9,54

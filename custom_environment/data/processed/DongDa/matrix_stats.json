@@ -1,0 +1,22 @@
+{
+  "created_at": "2026-02-10T20:55:46.425330",
+  "matrix_shape": [
+    675,
+    675
+  ],
+  "matrix_dtype": "float32",
+  "matrix_size_bytes": 1822500,
+  "validation": {
+    "num_nodes": 675,
+    "diagonal_zeros": 675,
+    "diagonal_correct": true,
+    "negative_count": 0,
+    "no_negatives": true,
+    "inf_count": 19936,
+    "inf_ratio_percent": 4.38,
+    "min_distance": 0.0,
+    "max_distance": 8547.892578125,
+    "mean_distance": 2607.658447265625,
+    "median_distance": 2428.889404296875
+  }
+}
