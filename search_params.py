@@ -61,14 +61,37 @@ def test_parameters(scaling_factor, distance_decay_factor, node_list, iterations
                 station_counts += 1
         node[1]['n_stations'] = station_counts
 
+    # Evaluate the plan precisely to set distances and cost metrics
+    my_node_dict = {node[0]: {} for node in my_node_list}
+    my_cost_dict = {node[0]: {} for node in my_node_list}
+    
+    # Initialize node attributes
+    for node in my_node_list:
+        node[1]["charging station"] = None
+        node[1]["distance"] = 0.0
+    
+    # Initialize station details
+    for i in range(len(my_plan)):
+        my_plan[i] = H.s_dictionnary(my_plan[i], my_node_list)
+
+    for _ in range(2):
+        my_node_list, my_node_dict, my_cost_dict = H.station_seeking(
+            my_plan, my_node_list, my_node_dict, my_cost_dict
+        )
+        for i in range(len(my_plan)):
+            my_plan[i] = H.total_number_EVs(my_plan[i], my_node_list)
+            my_plan[i] = H.avg_waiting(my_plan[i])
+
     fairness = H.social_fairness(my_node_list)
+    benefit = H.social_benefit(my_plan, my_node_list)
+    cost = H.social_cost(my_plan, my_node_list)
     
     # Restore old function
     H.dynamic_demand = old_dynamic_demand
-    return fairness
+    return fairness, benefit, cost
 
 if __name__ == "__main__":
-    location = "DongDa"
+    location = "BaDinh"
     base_dir = "custom_environment/data"
     node_file = os.path.join(base_dir, "Graph", location, "nodes_extended_" + location + ".txt")
     
@@ -77,8 +100,8 @@ if __name__ == "__main__":
         
     print(f"Total nodes in environment: {len(node_list)}")
     
-    scaling_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    decay_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    scaling_factors = np.linspace(0, 1, 20)
+    decay_factors = np.linspace(0, 1, 20)
     
     results = []
     
@@ -89,15 +112,40 @@ if __name__ == "__main__":
             old_stdout = sys.stdout
             sys.stdout = io.StringIO()
             
-            fairness = test_parameters(sf, df, node_list, iterations=40)
+            fairness, benefit, cost = test_parameters(sf, df, node_list, iterations=40)
             
             sys.stdout = old_stdout
-            results.append((sf, df, fairness))
+            results.append((sf, df, fairness, benefit, cost))
+            
+    # Calculate min and max for normalization
+    f_vals = [r[2] for r in results]
+    b_vals = [r[3] for r in results]
+    c_vals = [r[4] for r in results]
+    
+    min_f, max_f = min(f_vals), max(f_vals)
+    min_b, max_b = min(b_vals), max(b_vals)
+    min_c, max_c = min(c_vals), max(c_vals)
+    
+    def normalize(val, min_val, max_val):
+        return (val - min_val) / (max_val - min_val) if max_val > min_val else 0
+
+    scored_results = []
+    for sf, df, f, b, c in results:
+        norm_f = normalize(f, min_f, max_f)
+        norm_b = normalize(b, min_b, max_b)
+        # Cost is lower is better, so we invert it for the score
+        norm_c = 1.0 - normalize(c, min_c, max_c)
+        
+        # Combined score with equal weights
+        combined_score = (norm_f + norm_b + norm_c) / 3.0
+        scored_results.append((sf, df, f, b, c, combined_score))
             
     # Sort results
-    results.sort(key=lambda x: x[2], reverse=True)
+    scored_results.sort(key=lambda x: x[5], reverse=True)
     
-    print("\nTop 5 optimal parameters for MAXIMUM fairness (least clustering):")
+    print("\nTop 5 optimal parameters balancing fairness, benefit, and cost:")
     for i in range(5):
-        best = results[i]
-        print(f"Rank {i+1} -> Scaling Factor: {best[0]}, Distance Decay Factor: {best[1]}, Fairness: {best[2]:.5f}")
+        best = scored_results[i]
+        print(f"Rank {i+1} -> Scaling Factor: {best[0]:.2f}, Distance Decay Factor: {best[1]:.2f}")
+        print(f"         Fairness: {best[2]:.5f}, Benefit: {best[3]:.5f}, Cost: {best[4]:.5f}")
+        print(f"         Combined Score: {best[5]:.5f}\n")
