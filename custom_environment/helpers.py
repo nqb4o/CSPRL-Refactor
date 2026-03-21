@@ -1,6 +1,6 @@
 import json
 import pickle
-
+import math
 import osmnx as ox
 import numpy as np
 import networkx as nx
@@ -45,7 +45,7 @@ def cost_single(my_node, my_station, my_node_dict, my_cost_dict):
     if isinstance(cached_entry, dict) and cached_entry.get("state") == station_signature:
         node_cost = cached_entry["cost"]
     else:
-        cost_travel = alpha * distance / VELOCITY * (1 + weak_demand(my_node)) # demand as traffic density factor
+        cost_travel = alpha * (distance / VELOCITY) * (1 + weak_demand(my_node)) # demand as traffic density factor
         cost_boring = (1 - alpha) * (s_dict["W_s"] + 1 / (s_dict["service rate"] + eps))
         node_cost = cost_travel + cost_boring
         my_cost_dict[node_id][station_id] = {
@@ -123,7 +123,7 @@ def charging_capability(my_station):
 def weak_demand(my_node):
     return my_node[1]["demand"] * (1 - 0.1 * my_node[1]["private_cs"])
 
-def dynamic_demand(my_node, my_plan, scaling_factor=0.5, distance_decay_factor=0.5):
+def dynamic_demand(my_node, my_plan, scaling_factor=0.47, distance_decay_factor=0.89):
     power_factor = 0
     base_demand = weak_demand(my_node)
     for station in my_plan:
@@ -144,7 +144,7 @@ def influence_radius(my_station):
     """
     s_pos, s_x, s_dict = my_station[0], my_station[1], my_station[2]
     total_capacity = s_dict["capability"]
-    radius_s = RADIUS_MAX * 1 / (1 + np.exp(-total_capacity / (100 * capacity_unit)))
+    radius_s = RADIUS_MAX * 1 / (1 + np.exp(-total_capacity / (1000 * capacity_unit))) # prev 100
     s_dict["radius"] = radius_s  # [radius] = km
     return my_station
 
@@ -245,19 +245,36 @@ def service_rate(my_station):
     return my_station
 
 
-def avg_waiting(my_station):
+def avg_waiting(my_station, N=100, eps=1e-9):
     """
-    returns the expected value of waiting time
+    Returns the expected time in the system (waiting + service) using an M/M/1/N queuing model.
+    N is the system capacity (queue + service).
     """
-    s_pos, s_x, s_dict = my_station[0], my_station[1], my_station[2]
-    tau_s = 1 / s_dict["service rate"]
-    rho_s = s_dict["D_s"] * tau_s * time_unit  # dimensionless (shortened away)
-    if rho_s >= 1:
-        my_W_s = my_inf
-        s_dict["W_s"] = my_W_s
+    # Unpack directly
+    s_pos, s_x, s_dict = my_station
+
+    sr = max(s_dict.get("service rate", 0.0), eps)  # mu
+    ar = s_dict.get("D_s", 0.0)  # lambda
+    p = ar / sr  # rho (traffic intensity)
+
+    # Calculate Probability of full system (PN) and Expected number in system (Ls)
+    if math.isclose(p, 1.0, rel_tol=1e-7):
+        PN = 1.0 / (N + 1)
+        Ls = N / 2.0
+    elif p > 1.0:
+        # Use reciprocal (u = 1/p) to prevent exponential overflow when p > 1
+        u = 1.0 / p
+        PN = (1.0 - u) / (1.0 - u ** (N + 1))
+        Ls = (N - (N + 1) * u + u ** (N + 1)) / ((1.0 - u) * (1.0 - u ** (N + 1)))
     else:
-        my_W_s = rho_s * tau_s / (2 * (1 - rho_s))  # W_s = expected waiting time at S, [W_s] = h
-        s_dict["W_s"] = my_W_s
+        # Standard stable formula when p < 1
+        PN = (p ** N * (1.0 - p)) / (1.0 - p ** (N + 1))
+        Ls = p / (1.0 - p) - ((N + 1) * p ** (N + 1)) / (1.0 - p ** (N + 1))
+
+    # Little's Law: W = L / lambda_eff
+    lambda_eff = ar * (1.0 - PN)
+    s_dict["W_s"] = Ls / (lambda_eff + eps)
+
     return my_station
 
 
@@ -371,7 +388,7 @@ def existing_score(my_existing_plan, my_node_list):
     return my_benefit, my_cost, my_fairness, charg_time, wait_time, travel_time
 
 
-def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_travel, norm_fairness):
+def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_travel, norm_fairness, grid_penalty=None):
     """
     same as score, but normalised.
     """
@@ -386,7 +403,12 @@ def norm_score(my_plan, my_node_list, norm_benefit, norm_charg, norm_wait, norm_
     fairness = social_fairness(my_node_list) / norm_fairness
     # print(norm_benefit, norm_charg, norm_wait, norm_travel, norm_fairness)
     # print(social_benefit(my_plan, my_node_list), charging_time(my_plan), waiting_time(my_plan), travel_cost(my_node_list), social_fairness(my_node_list))
-    my_score = 0.3 * benefit - 0.3 * cost + 0.3 * fairness
+    if grid_penalty is not None:
+        avg_penalty = abs(grid_penalty) / max(1, len(my_plan))
+        grid_score = max(0.0, 1.0 - avg_penalty)
+        my_score = 0.25 * benefit - 0.25 * cost + 0.25 * fairness + 0.25 * grid_score
+    else:
+        my_score = 1/3 * benefit - 1/3 * cost + 1/3 * fairness
     return my_score, benefit, cost, fairness, charg_time, wait_time, cost_travel
 
 
@@ -489,7 +511,7 @@ def coverage(my_node_list, my_plan):
         my_node[1]["benefit"] = cover
 
 
-def choose_node_new_benefit(free_list, all_node_list, R_search=0.3):
+def choose_node_new_benefit(free_list, all_node_list, R_search=0.1):
     """
     pick location with highest potential based on Potential/Coverage.
     """
