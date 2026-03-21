@@ -1,13 +1,15 @@
+import os
 import ast
 import pickle
 import pandas as pd
 
 
 # Path to file
-location = "DongDa"
-existing_plan_file = '../419Lab/data/QGIS/existing_plan/existing_plan_filtered.csv'
-node_file = f'custom_environment/data/Graph/DongDa/nodes_extended_{location}.txt' # path to plannable nodes
-graph_file = f'custom_environment/data/Graph/{location}/{location}.graphml'
+location = "ThanhXuan"
+base_dir = os.path.join("custom_environment", "data")
+existing_plan_file = os.path.join(base_dir, "QGIS", "existing_plan", "existing_plan_filtered.csv")
+node_file = os.path.join(base_dir, "Graph", f"{location}", f"nodes_extended_{location}.txt")
+graph_file = os.path.join(base_dir, "Graph", f"{location}", f"{location}.graphml")
 
 # Load data
 with open(node_file, "r") as file:
@@ -42,7 +44,7 @@ for row in detail_stations_df.iterrows():
 
     if s_pos is not None:
         existing_plan.append([s_pos, s_x, {}])
-print(existing_plan)
+
 # save to file
 pickle.dump(existing_plan, open(f"custom_environment/data/Graph/{location}/existingplan_" + location + ".pkl", "wb"))
 print(f"Successfully saved {len(existing_plan)} existing plans.")
