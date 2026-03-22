@@ -1,0 +1,4 @@
+index,name,bus,vm_pu,va_degree
+0,EVN_GRID_1,0,1.0,0.0
+1,EVN_GRID_2,1,1.0,0.0
+2,EVN_GRID_3,2,1.0,0.0
