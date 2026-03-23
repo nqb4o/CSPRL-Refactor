@@ -6,7 +6,7 @@ import numpy as np
 
 # Configuration
 LOCATION = "DongDa"
-STEP = 119200
+STEP = 66400
 RESULT_FILE = f"Results/optimal_plan/{LOCATION}/plan_RL_{STEP}.pkl"
 OUTPUT_CSV = f"Results/optimal_plan/{LOCATION}/station_config_{STEP}.csv"
 
@@ -51,7 +51,7 @@ def export_station_config():
             "Node_ID": node_id,
             "Latitude": lat,
             "Longitude": lon,
-            "Total_Capacity_kW": station[2].get("capability", 0),
+            "Total_Capacity_MW": station[2].get("capability", 0),
             "Install_Fee": station[2].get("fee", 0),
             "Service_Rate_per_h": round(station[2].get("service rate", 0), 2),
             "Expected_Wait_Time_h": round(station[2].get("W_s", 0), 4),
@@ -87,7 +87,8 @@ def export_station_config():
     print("-" * 50)
     print(f"Successfully exported configuration to:\n{os.path.abspath(OUTPUT_CSV)}")
     print("-" * 50)
-    print(df[["Station_ID", "Total_Capacity_kW", "Charger_Config", "Number of EVs", "Expected_Wait_Time_h", "Charging Time"]].to_string())
+    print(df[["Node_ID", "Total_Capacity_kW", "Charger_Config", "Number of EVs", "Expected_Wait_Time_h",
+              "Charging Time", "Service_Rate_per_h"]].to_string())
     print("Total charg time:", df["Charging Time"].sum())
 
 if __name__ == "__main__":
