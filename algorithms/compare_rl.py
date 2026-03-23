@@ -234,8 +234,11 @@ def compare(location="DongDa"):
     node_file = os.path.join(base_dir, "Graph", location, f"nodes_extended_{location}.txt")
     plan_file = os.path.join(base_dir, "Graph", location, f"existingplan_{location}.pkl")
 
+    use_gnn = False  # Set to True to evaluate the GNN model
+    obs_type = "gnn" if use_gnn else "mlp"
+    
     # Env for testing
-    env = StationPlacement(graph_file, node_file, plan_file, location=location)
+    env = StationPlacement(graph_file, node_file, plan_file, location=location, obs_type=obs_type)
 
     # 0. Baseline calculation (as in run_metrics.py)
     with open(node_file, "r") as file:
@@ -278,34 +281,41 @@ def compare(location="DongDa"):
     G = ox.load_graphml(graph_file)
 
     # 1. Load RL (DQN) Model
-    step = 114000
-    rl_log_dir = os.path.join("Results", "tmp2", location)
+    step = 66400
+    rl_log_dir = os.path.join("Results", "tmp", location, obs_type)
     best_rl_model = None
     if os.path.exists(rl_log_dir):
-        # models = [f for f in os.listdir(rl_log_dir) if f.startswith(f"best_model_{location}_") and f.endswith(".zip")]
-        # if models:
-        #     models.sort()
-        best_rl_model = os.path.join(rl_log_dir, f"best_model_{location}_{step}.zip")
+        # Allow loading either the GNN or MLP model
+        prefix = "best_model_gnn_" if use_gnn else "best_model_"
+        best_rl_model = os.path.join(rl_log_dir, f"{prefix}{location}_{step}.zip")
 
-    if best_rl_model:
+    if best_rl_model and os.path.exists(best_rl_model):
         print(f"Loading RL model from {best_rl_model}")
-        rl_agent = DQN.load(best_rl_model)
+        if use_gnn:
+            from custom_environment.gnn_extractor import GNNFeaturesExtractor
+            custom_objects = {"GNNFeaturesExtractor": GNNFeaturesExtractor}
+            rl_agent = DQN.load(best_rl_model, custom_objects=custom_objects)
+        else:
+            rl_agent = DQN.load(best_rl_model)
     else:
         print("Warning: RL model not found.")
         rl_agent = None
 
-    # 2. Load GA Model
-    ga_model_path = os.path.join("Results", "ga", location, f"best_ga_model_{location}_9612.pt")
-    if os.path.exists(ga_model_path):
-        print(f"Loading GA model from {ga_model_path}")
-        chromosome = torch.load(ga_model_path, weights_only=False)
-        input_dim = env.observation_space.shape[0]
-        output_dim = env.action_space.n
-        ga_agent = GAPolicy(input_dim, output_dim, hidden_dim=256)
-        unflatten_weights(ga_agent, chromosome)
+    # 2. Load GA Model (Skipped if using GNN)
+    ga_agent = None
+    if not use_gnn:
+        ga_model_path = os.path.join("Results", "ga", location, f"best_ga_model_{location}.pt")
+        if os.path.exists(ga_model_path):
+            print(f"Loading GA model from {ga_model_path}")
+            chromosome = torch.load(ga_model_path, weights_only=False)
+            input_dim = env.observation_space.shape[0]
+            output_dim = env.action_space.n
+            ga_agent = GAPolicy(input_dim, output_dim, hidden_dim=256)
+            unflatten_weights(ga_agent, chromosome)
+        else:
+            print("Warning: GA model not found.")
     else:
-        print("Warning: GA model not found.")
-        ga_agent = None
+        print("Note: GA comparison skipped (Incompatible with GNN observation format).")
 
     # Run comparisons
     results = {}
