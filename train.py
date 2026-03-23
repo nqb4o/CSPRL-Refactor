@@ -45,7 +45,7 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
             x, y = ts2xy(load_results(self.log_dir), 'timesteps')
             if len(x) > 0:
                 # Mean training reward over the last 100 episodes
-                my_mean_reward = np.mean(y[-3:])
+                my_mean_reward = np.mean(y[-10:])
                 if self.verbose > 0:
                     print("Num timesteps: {}".format(self.num_timesteps))
                     print("Best mean reward: {:.2f} - Last mean reward per episode: {:.2f}".format(
@@ -63,14 +63,14 @@ class SaveOnBestTrainingRewardCallback(BaseCallback):
                         self.save_path = os.path.join(self.log_dir, new_name)
                         print("Saving new best model to {}".format(self.save_path))
                     self.model.save(self.save_path)
-                else:
-                    if self.verbose > 0:
-                        new_name = self.modelname + str(self.num_timesteps)
-                        if self.save_path is not None:
-                            os.makedirs(self.save_path, exist_ok=True)
-                        self.save_path = os.path.join(self.log_dir, new_name)
-                        print("Saving model on frequency to {}".format(self.save_path))
-                    self.model.save(self.save_path)
+                # else:
+                #     if self.verbose > 0:
+                #         new_name = self.modelname + str(self.num_timesteps)
+                #         if self.save_path is not None:
+                #             os.makedirs(self.save_path, exist_ok=True)
+                #         self.save_path = os.path.join(self.log_dir, new_name)
+                #         print("Saving model on frequency to {}".format(self.save_path))
+                #     self.model.save(self.save_path)
 
         return True
 
@@ -91,8 +91,11 @@ if __name__ == '__main__':
     node_file = os.path.join(base_dir, "Graph", location, "nodes_extended_" + location + ".txt")
     plan_file = os.path.join(base_dir, "Graph", location, "existingplan_" + location + ".pkl")
 
-    env = StationPlacement(graph_file, node_file, plan_file, location=location)
-    log_dir = f"Results/tmp6/{location}/"
+    use_gnn = True  # Set to True to train with GNN policy
+
+    obs_type = "gnn" if use_gnn else "mlp"
+    env = StationPlacement(graph_file, node_file, plan_file, location=location, obs_type=obs_type)
+    log_dir = f"Results/tmp/gnn/{location}/"
     modelname = "best_model_" + location + "_"
 
     """
@@ -100,8 +103,21 @@ if __name__ == '__main__':
     """
     os.makedirs(log_dir, exist_ok=True)
     env = Monitor(env, os.path.join(log_dir, "monitor.csv"))
-    policy_kwargs = dict(net_arch=[256, 256]) # hidden layers
-    model = DQN("MlpPolicy", env, verbose=1, batch_size=128, buffer_size=10000, learning_rate=1e-5,
+    
+    if use_gnn:
+        from custom_environment.gnn_extractor import GNNFeaturesExtractor
+        policy_kwargs = dict(
+            features_extractor_class=GNNFeaturesExtractor,
+            features_extractor_kwargs=dict(features_dim=256),
+            net_arch=[256, 256]
+        )
+        policy_type = "MultiInputPolicy"
+        modelname = "best_model_gnn_" + location + "_"
+    else:
+        policy_kwargs = dict(net_arch=[256, 256]) # hidden layers
+        policy_type = "MlpPolicy"
+    
+    model = DQN(policy_type, env, verbose=1, batch_size=128, buffer_size=10000, learning_rate=1e-5,
                 exploration_initial_eps=1, exploration_final_eps=0.05, exploration_fraction=0.2, policy_kwargs=policy_kwargs,
                 device='cuda' if torch.cuda.is_available() else 'cpu', seed=seed)
     callback = SaveOnBestTrainingRewardCallback(check_freq=400, my_log_dir=log_dir, my_modelname=modelname)
