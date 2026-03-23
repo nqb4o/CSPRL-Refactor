@@ -43,7 +43,7 @@ def train_ga(args):
     
     input_dim = env.observation_space.shape[0]
     output_dim = env.action_space.n
-    hidden_dim = 128
+    hidden_dim = 256
 
     # Population initialization
     population = []
@@ -51,7 +51,7 @@ def train_ga(args):
         model = GAPolicy(input_dim, output_dim, hidden_dim)
         population.append(flatten_weights(model))
 
-    best_overall_score = -np.inf
+    best_overall_reward = -np.inf
     best_overall_chromosome = None
 
     log_dir = f"Results/ga/{location}/"
@@ -82,12 +82,12 @@ def train_ga(args):
         current_best_reward = fitness_rewards[idx[0]]
         current_best_score = fitness_scores[idx[0]]
 
-        if current_best_score > best_overall_score:
-            best_overall_score = current_best_score
+        if current_best_reward > best_overall_reward:
+            best_overall_reward = current_best_reward
             best_overall_chromosome = population[0]
             # Save the best model
             torch.save(best_overall_chromosome, os.path.join(log_dir, f"best_ga_model_{location}.pt"))
-            print(f"Gen {gen}: New best score: {best_overall_score:.2f}")
+            print(f"Gen {gen}: New best reward: {best_overall_reward:.2f}")
 
         print(f"Gen {gen}: Best Reward: {current_best_reward:.2f}, Best Score: {current_best_score:.2f}, Avg Reward: {np.mean(fitness_rewards):.2f}")
 
