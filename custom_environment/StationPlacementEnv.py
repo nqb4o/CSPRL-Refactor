@@ -36,6 +36,11 @@ class FeatureScaler:
         self.private_cs_max = 1.0
         self.charger_max = float(H.K)
         self.budget_max = float(H.BUDGET)
+        self.grid_dist_max = 3.0
+        self.grid_mw_max = 10.0
+        self.benefit_max = 5.0
+        self.capability_max = 10.0
+        self.dist_to_station_max = 10.0
 
     def scale_lon(self, v):
         return 2 * (np.clip(v, self.lon_min, self.lon_max) - self.lon_min) / (self.lon_max - self.lon_min + 1e-9) - 1
@@ -60,6 +65,21 @@ class FeatureScaler:
 
     def scale_budget(self, v):
         return 2 * (np.clip(v, 0, self.budget_max) / (self.budget_max + 1e-9)) - 1
+        
+    def scale_grid_distance(self, v):
+        return 2 * np.clip(v / (self.grid_dist_max + 1e-9), 0, 1) - 1
+        
+    def scale_grid_mw(self, v):
+        return 2 * np.clip(v / (self.grid_mw_max + 1e-9), 0, 1) - 1
+        
+    def scale_benefit(self, v):
+        return 2 * np.clip(v / (self.benefit_max + 1e-9), 0, 1) - 1
+        
+    def scale_capability(self, v):
+        return 2 * np.clip(v / (self.capability_max + 1e-9), 0, 1) - 1
+        
+    def scale_nearest_station_dist(self, v):
+        return 2 * np.clip(v / (self.dist_to_station_max + 1e-9), 0, 1) - 1
 
 
 class Plan:
@@ -136,9 +156,10 @@ class StationPlacement(gym.Env):
     node_dict = {}
     cost_dict = {}
 
-    def __init__(self, my_graph_file, my_node_file, my_plan_file, location="DongDa"):
+    def __init__(self, my_graph_file, my_node_file, my_plan_file, location="DongDa", obs_type="mlp"):
         super(StationPlacement, self).__init__()
 
+        self.obs_type = obs_type
         # Initialize Grid Adapter with Fallback
         try:
             # Adapter automatically finds data in CSPRL/power_grid/data
@@ -148,6 +169,7 @@ class StationPlacement(gym.Env):
             self.grid_adapter = None
 
         _graph, self.node_list = H.prepare_graph(my_graph_file, my_node_file)
+        self.node_id_to_idx = {node[0]: idx for idx, node in enumerate(self.node_list)}
 
         self.node_list = [self._init(my_node) for my_node in self.node_list]
 
@@ -156,7 +178,7 @@ class StationPlacement(gym.Env):
         self.budget = None
         self.plan_instance = None
         self.plan_length = None
-        self.row_length = 6
+        self.row_length = 7  # Expanded features (added nearest station distance)
         self.best_score = None
         self.best_plan = None
         self.best_node_list = None
@@ -166,8 +188,28 @@ class StationPlacement(gym.Env):
         self.feature_scaler = FeatureScaler()
         # new action space including all charger types
         self.action_space = spaces.Discrete(5)
-        shape = self.row_length * len(self.node_list) + 1
-        self.observation_space = spaces.Box(low=-1, high=1, shape=(shape,), dtype=np.float16)
+        
+        if self.obs_type == "mlp":
+            shape = self.row_length * len(self.node_list) + 1
+            self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(shape,), dtype=np.float32)
+        elif self.obs_type == "gnn":
+            edges = []
+            for u, v in _graph.edges():
+                if u in self.node_id_to_idx and v in self.node_id_to_idx:
+                    edges.append([self.node_id_to_idx[u], self.node_id_to_idx[v]])
+            
+            if edges:
+                self.edge_index_array = np.array(edges, dtype=np.int32).T
+            else:
+                self.edge_index_array = np.zeros((2, 1), dtype=np.int32)
+                
+            self.observation_space = spaces.Dict({
+                "node_features": spaces.Box(low=-1.0, high=1.0, shape=(len(self.node_list), self.row_length), dtype=np.float32),
+                "edge_index": spaces.Box(low=0, high=len(self.node_list), shape=(2, self.edge_index_array.shape[1]), dtype=np.int32),
+                "global_state": spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+            })
+        else:
+            raise ValueError(f"Unknown obs_type: {self.obs_type}. Must be 'mlp' or 'gnn'")
 
     def reset(self, seed=None, options=None):
         """
@@ -226,33 +268,55 @@ class StationPlacement(gym.Env):
 
     def establish_observation(self):
         """
-        Build observation matrix
+        Build observation matrix (MLP) or Dict (GNN)
         """
-        row_length = self.row_length
-        width = row_length * len(self.node_list) + 1
-        obs = np.zeros(width, dtype=np.float32)
+        # Precompute capability dict to avoid nested lookups (O(M) instead of O(N*M))
+        station_caps = {s[0][0]: s[2]["capability"] for s in self.plan_instance.plan}
+        
+        # Precompute distances to nearest existing station
+        station_nodes = [s[0][0] for s in self.plan_instance.plan]
+        if station_nodes:
+            nearest_dists = []
+            for node in self.node_list:
+                dist = node[1].get("distance", self.feature_scaler.dist_to_station_max)
+                nearest_dists.append(dist)
+        else:
+            nearest_dists = [self.feature_scaler.dist_to_station_max] * len(self.node_list)
+
+        node_features = np.zeros((len(self.node_list), self.row_length), dtype=np.float32)
 
         for j, node in enumerate(self.node_list):
-            i = j * row_length
             dyn_demand = H.dynamic_demand(node, self.plan_instance.plan)
-            obs[i + 0] = 2 * (np.clip(dyn_demand, 0, 1) - 0.5)
-            obs[i + 1] = self.feature_scaler.scale_land_price(node[1]['land_price'])
-            obs[i + 2] = 2 * (np.clip(node[1].get('grid_distance_km', 3.0), 0, 3.0) / 3.0 - 0.5)  # Fixed to -1..1
-            obs[i + 3] = 2 * (np.clip(node[1].get('grid_available_mw', 0.0), 0, 10.0) / 10.0 - 0.5)
-            benefit = node[1].get('benefit', 0.0)
-            obs[i + 4] = 2 * (np.clip(benefit / 5.0, 0, 1) - 0.5)
-            capability = 0.0
-            for station in self.plan_instance.plan:
-                if station[0][0] == node[0]:
-                    capability = station[2]["capability"]
-                    break
-            obs[i + 5] = 2 * (np.clip(capability / 10.0, 0, 1) - 0.5)
+            # 0: dynamic demand
+            node_features[j, 0] = self.feature_scaler.scale_demand(dyn_demand)
+            # 1: land price
+            node_features[j, 1] = self.feature_scaler.scale_land_price(node[1]['land_price'])
+            # 2: grid distance
+            node_features[j, 2] = self.feature_scaler.scale_grid_distance(node[1].get('grid_distance_km', 3.0))
+            # 3: grid capability
+            node_features[j, 3] = self.feature_scaler.scale_grid_mw(node[1].get('grid_available_mw', 0.0))
+            # 4: benefit
+            node_features[j, 4] = self.feature_scaler.scale_benefit(node[1].get('benefit', 0.0))
+            # 5: current station capability at this node
+            capability = station_caps.get(node[0], 0.0)
+            node_features[j, 5] = self.feature_scaler.scale_capability(capability)
+            # 6: distance to nearest station
+            node_features[j, 6] = self.feature_scaler.scale_nearest_station_dist(nearest_dists[j])
 
-        # Globals (last 1)
-        global_i = self.row_length * len(self.node_list)
-        obs[global_i + 0] = self.feature_scaler.scale_budget(self.budget)
+        global_st = np.array([self.feature_scaler.scale_budget(self.budget)], dtype=np.float32)
 
-        return obs
+        if self.obs_type == "mlp":
+            width = self.row_length * len(self.node_list) + 1
+            obs = np.zeros(width, dtype=np.float32)
+            obs[:-1] = node_features.flatten()
+            obs[-1] = global_st[0]
+            return obs
+        else:
+            return {
+                "node_features": node_features,
+                "edge_index": self.edge_index_array,
+                "global_state": global_st
+            }
 
     def budget_adjustment(self, my_station):
         inst_cost = my_station[2]["fee"]
@@ -406,6 +470,7 @@ class StationPlacement(gym.Env):
             if cap_penalty < 0:
                 new_score -= 100
                 self.game_over = True
+                print("VIOLATED!")
         else:
             new_score, _, _, _, _, _, _ = H.norm_score(self.plan_instance.plan, self.node_list,
                                                              self.plan_instance.norm_benefit, self.plan_instance.norm_charg,
