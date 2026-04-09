@@ -16,6 +16,7 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
 from functools import lru_cache
 import math
+import pickle
 
 try:
     import pandas as pd
@@ -82,6 +83,17 @@ class CSPRLGridAdapter:
         self.grid_data_folder = grid_data_folder
         self.ev_station_power_mw = ev_station_power_mw
         self._bus_cache: Dict[Tuple[float, float], Dict] = {}
+        self._cache_dirty = False
+        self.cache_path = os.path.join(self.grid_data_folder, "bus_cache.pkl")
+
+        # Load cache if exists
+        if os.path.exists(self.cache_path):
+            try:
+                with open(self.cache_path, "rb") as f:
+                    self._bus_cache = pickle.load(f)
+                # print(f"Loaded {len(self._bus_cache)} entries from bus cache.")
+            except Exception as e:
+                print(f"Warning: Could not load bus cache: {e}")
 
         # Khởi tạo GridLoader
         self.loader = GridLoader(grid_data_folder, bus_limit=0.8)
@@ -107,6 +119,7 @@ class CSPRLGridAdapter:
         if cache_key not in self._bus_cache:
             result = self.loader.find_nearest_bus(lat, lon, voltage_kv=22.0, prefer_available=True)
             self._bus_cache[cache_key] = result
+            self._cache_dirty = True
 
         return self._bus_cache[cache_key]
 
@@ -120,22 +133,9 @@ class CSPRLGridAdapter:
 
         Returns:
             node_list với thêm các key:
-            - grid_bus_idx: Index của bus 22kV gần nhất
             - grid_distance_km: Khoảng cách đến bus (km)
-            - grid_available_mw: Công suất còn lại tại bus (MW)
-
-        Example:
-            >>> adapter = CSPRLGridAdapter("power_grid/data/hanoi_citywide")
-            >>> nodes = [(123, {'x': 105.82, 'y': 21.02, 'demand': 0.5})]
-            >>> extended = adapter.extend_node_features(nodes)
-            >>> print(extended[0][1]['grid_distance_km'])
-            0.45
-            :param node_list:
-            :param station_nodes:
         """
         extended_nodes = []
-        # get the available_mw dict
-        bus_loads = self.get_accumulate_load(station_nodes)
         for node_id, attrs in node_list:
             # Lấy tọa độ từ node attributes
             lat = attrs.get('y', 0)
@@ -146,17 +146,47 @@ class CSPRLGridAdapter:
 
             # Thêm các thuộc tính mới
             new_attrs = attrs.copy()
-            new_attrs['grid_bus_idx'] = bus_info.get('bus_idx', -1)
             new_attrs['grid_distance_km'] = bus_info.get('distance_km', float('inf'))
-            if new_attrs['grid_bus_idx'] in bus_loads.keys():
-                new_attrs['grid_available_mw'] = bus_loads[new_attrs['grid_bus_idx']]['available'] - bus_loads[new_attrs['grid_bus_idx']]['required']
-            else:
-                new_attrs['grid_available_mw'] = bus_info.get('available_mw', 0)
-            # Removed 'grid_feasible' to avoid misleading agents with hardcoded assumptions
 
             extended_nodes.append((node_id, new_attrs))
 
+        # Save cache if updated
+        if self._cache_dirty:
+            try:
+                with open(self.cache_path, "wb") as f:
+                    pickle.dump(self._bus_cache, f)
+                self._cache_dirty = False
+                # print(f"Saved {len(self._bus_cache)} entries to bus cache.")
+            except Exception as e:
+                print(f"Warning: Could not save bus cache: {e}")
+
         return extended_nodes
+
+    def get_all_bus_capacities(self, station_nodes: List[Any]) -> np.ndarray:
+        """
+        Returns a vector of available capacities for all 22kV buses,
+        accounting for cumulative load from given station nodes.
+        """
+        if self.loader.net is None:
+            return np.array([], dtype=np.float32)
+
+        bus_loads = self.get_accumulate_load(station_nodes)
+        net = self.loader.net
+        capacities = []
+
+        for idx, row in net.bus.iterrows():
+            if abs(row['vn_kv'] - 22.0) < 0.5:
+                # Base available capacity from power flow
+                capacity_info = self.loader.get_available_capacity(idx)
+                available = capacity_info.get('available_mw', 0.0)
+
+                # Subtract cumulative required load from EV stations
+                if idx in bus_loads:
+                    available -= bus_loads[idx]['required']
+
+                capacities.append(max(0.0, available))
+
+        return np.array(capacities, dtype=np.float32)
 
     def get_accumulate_load(self, station_nodes: List[Any]) -> Dict:
         bus_loads = {}
@@ -313,7 +343,7 @@ class CSPRLGridAdapter:
             grid_utilization_list.append(required / (available + 1e-9))
             if required > available and required > 0:
                 shortage = required - available
-                # Penalty proportional to overload ratio, but let it grow beyond 1.0 
+                # Penalty proportional to overload ratio, but let it grow beyond 1.0
                 # to provide gradient for the RL agent even when highly overloaded.
                 ratio = shortage / available if available > 0 else shortage / self.ev_station_power_mw
                 bus_penalty = PENALTY_CAPACITY_WEIGHT * ratio
